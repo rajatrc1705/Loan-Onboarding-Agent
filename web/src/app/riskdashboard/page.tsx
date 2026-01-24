@@ -2,7 +2,7 @@
 
 import { apiBaseUrl, apiFetch } from "@/lib/api";
 import { RfiCaseSummary } from "@/lib/types";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 export default function RiskDashboardPage() {
   const [customerEmail, setCustomerEmail] = useState("");
@@ -12,6 +12,41 @@ export default function RiskDashboardPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastInvite, setLastInvite] = useState<RfiCaseSummary | null>(null);
+
+  const stats = useMemo(() => {
+    const total = cases.length;
+    const byStatus = cases.reduce<Record<string, number>>((acc, item) => {
+      acc[item.status] = (acc[item.status] ?? 0) + 1;
+      return acc;
+    }, {});
+    return {
+      total,
+      invited: byStatus.INVITED ?? 0,
+      inCall: byStatus.IN_CALL ?? 0,
+      delivered: byStatus.DELIVERED ?? 0,
+    };
+  }, [cases]);
+
+  const statusBadge = (status: RfiCaseSummary["status"]) => {
+    const styles: Record<string, string> = {
+      DRAFT: "bg-zinc-100 text-zinc-700",
+      INVITED: "bg-amber-100 text-amber-700",
+      CALL_READY: "bg-blue-100 text-blue-700",
+      IN_CALL: "bg-purple-100 text-purple-700",
+      SUMMARIZED: "bg-emerald-100 text-emerald-700",
+      DELIVERED: "bg-green-100 text-green-700",
+      CLOSED: "bg-zinc-200 text-zinc-700",
+    };
+    return (
+      <span
+        className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
+          styles[status] ?? "bg-zinc-100 text-zinc-700"
+        }`}
+      >
+        {status.replace("_", " ")}
+      </span>
+    );
+  };
 
   const loadCases = async () => {
     try {
@@ -83,8 +118,8 @@ export default function RiskDashboardPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 px-6 py-12 text-zinc-900">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-        <header className="space-y-2">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+        <header className="rounded-3xl border border-zinc-200 bg-gradient-to-br from-white via-white to-zinc-100 p-6 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
             Internal
           </p>
@@ -92,6 +127,24 @@ export default function RiskDashboardPage() {
           <p className="text-sm text-zinc-600">
             Create RFI cases, add questions, and send invites.
           </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase text-zinc-500">Total cases</p>
+              <p className="mt-2 text-2xl font-semibold text-zinc-900">{stats.total}</p>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase text-zinc-500">Invited</p>
+              <p className="mt-2 text-2xl font-semibold text-amber-700">{stats.invited}</p>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase text-zinc-500">In call</p>
+              <p className="mt-2 text-2xl font-semibold text-purple-700">{stats.inCall}</p>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase text-zinc-500">Delivered</p>
+              <p className="mt-2 text-2xl font-semibold text-emerald-700">{stats.delivered}</p>
+            </div>
+          </div>
         </header>
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
@@ -186,7 +239,21 @@ export default function RiskDashboardPage() {
         </section>
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold">Live Cases</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold">Live Cases</h2>
+              <p className="text-sm text-zinc-600">
+                Track current RFI status and jump to customer links.
+              </p>
+            </div>
+            <button
+              className="rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-600 hover:border-zinc-300"
+              type="button"
+              onClick={loadCases}
+            >
+              Refresh list
+            </button>
+          </div>
           <div className="mt-4 overflow-hidden rounded-lg border border-zinc-200">
             <table className="w-full text-left text-sm">
               <thead className="bg-zinc-100 text-xs uppercase text-zinc-500">
@@ -208,7 +275,7 @@ export default function RiskDashboardPage() {
                   cases.map((item) => (
                     <tr key={item.id} className="border-t border-zinc-200">
                       <td className="px-4 py-3">{item.customer_email}</td>
-                      <td className="px-4 py-3">{item.status}</td>
+                      <td className="px-4 py-3">{statusBadge(item.status)}</td>
                       <td className="px-4 py-3">
                         {new Date(item.updated_at).toLocaleString()}
                       </td>
