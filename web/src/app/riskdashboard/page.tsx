@@ -10,6 +10,7 @@ export default function RiskDashboardPage() {
   const [questions, setQuestions] = useState<string[]>([""]);
   const [cases, setCases] = useState<RfiCaseSummary[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastInvite, setLastInvite] = useState<RfiCaseSummary | null>(null);
 
@@ -113,6 +114,23 @@ export default function RiskDashboardPage() {
       setError(err instanceof Error ? err.message : "Failed to create RFI");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (caseId: string, email: string) => {
+    const confirmed = window.confirm(
+      `Delete the case for ${email}? This will remove the questions and answers.`
+    );
+    if (!confirmed) return;
+    setError(null);
+    setDeletingId(caseId);
+    try {
+      await apiFetch(`/rfi/${caseId}`, { method: "DELETE" });
+      await loadCases();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete case");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -262,12 +280,13 @@ export default function RiskDashboardPage() {
                   <th className="px-4 py-2">Status</th>
                   <th className="px-4 py-2">Updated</th>
                   <th className="px-4 py-2">Links</th>
+                  <th className="px-4 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {cases.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-3 text-sm text-zinc-500" colSpan={4}>
+                    <td className="px-4 py-3 text-sm text-zinc-500" colSpan={5}>
                       No cases yet.
                     </td>
                   </tr>
@@ -293,6 +312,16 @@ export default function RiskDashboardPage() {
                             </a>
                           )}
                         </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:border-red-300 disabled:opacity-60"
+                          type="button"
+                          onClick={() => handleDelete(item.id, item.customer_email)}
+                          disabled={deletingId === item.id}
+                        >
+                          {deletingId === item.id ? "Deleting..." : "Delete"}
+                        </button>
                       </td>
                     </tr>
                   ))

@@ -212,6 +212,17 @@ def post_summary(
     )
 
 
+@router.delete("/{rfi_id}")
+def delete_rfi_case(rfi_id: str, session: Session = Depends(get_session)) -> dict:
+    case = _get_case_or_404(session, rfi_id)
+    session.exec(delete(RfiAnswer).where(RfiAnswer.rfi_id == case.id))
+    session.exec(delete(RfiQuestion).where(RfiQuestion.rfi_id == case.id))
+    session.exec(delete(RfiSummary).where(RfiSummary.rfi_id == case.id))
+    session.delete(case)
+    session.commit()
+    return {"status": "deleted"}
+
+
 def _get_case_or_404(session: Session, rfi_id: str) -> RfiCase:
     try:
         case_id = UUID(rfi_id)
