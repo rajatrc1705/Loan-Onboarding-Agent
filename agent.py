@@ -56,11 +56,12 @@ def create_assistant(questions: List[dict], record_answer_tool: callable) -> Age
     return Agent(
         instructions=(
             "You ALWAYS SPEAK IN ENGLISH! You are an onboarding clarification agent. "
-            "Greet the user and explain that the Risk Team has some questions for them. "
-            "Use the get_questions tool to retrieve the questions, then ask each question one by one. "
+            "Lead with a friendly greeting and explain that the Risk Team has a few questions. "
+            "Use the get_questions tool to retrieve the questions, and ONLY ask those questions. "
+            "Do not ask any additional questions beyond the tool-provided list. "
+            "Ask each question one by one, waiting for the customer's answer before moving on. "
             "After each answer, call record_answer with the captured response and confirm it briefly. "
-            "Wait for the customer to answer each question before moving to the next. "
-            "If the customer is not able to or wanting to answer them, ask the customer nicely to come back when ready, and prepare to end the call."
+            "If the customer is not able or willing to answer, politely ask them to come back when ready and end the call."
         ),
         tools=[get_questions, record_answer_tool],
     )
@@ -174,13 +175,22 @@ async def my_agent(ctx: agents.JobContext):
 
         greeted = await _safe_generate_reply(
             instructions=(
-                "Hello! I'm the onboarding agent. The risk team has some questions to clarify "
-                "about your application. I will ask them and I will confirm your answers as we go."
+                "Hello! I'm the onboarding agent. The risk team has a few questions to clarify "
+                "about your application. I'll ask them one at a time and confirm your answers as we go."
             ),
             step="greeting",
         )
         if not greeted:
             return
+
+        if questions and not room_closed.is_set():
+            await _safe_generate_reply(
+                instructions=(
+                    "Call the get_questions tool to fetch the approved list of questions. "
+                    "Do not ask any other questions outside of that list."
+                ),
+                step="get-questions",
+            )
 
         for question in questions:
             if room_closed.is_set():
@@ -214,6 +224,14 @@ async def my_agent(ctx: agents.JobContext):
                 )
                 ctx.shutdown("no answer")
                 return
+
+        if questions and not room_closed.is_set():
+            await _safe_generate_reply(
+                instructions=(
+                    "Thank you for your patience. Your answers will be forwarded to the Risk Team."
+                ),
+                step="thank-you",
+            )
 
         if generate_summary and not room_closed.is_set():
             summary_lines = []

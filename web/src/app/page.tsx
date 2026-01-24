@@ -4,13 +4,13 @@ export default function Home() {
       <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-16">
         <div className="flex flex-col gap-2">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            Onboarding Control Tower
+            Loan Onboarding
           </p>
           <h1 className="text-3xl font-semibold text-zinc-900">
-            Clarification RFI MVP
+            Risk Team Control Tower
           </h1>
           <p className="text-base text-zinc-600">
-            Internal dashboards, customer magic links, and LiveKit calls.
+            Internal dashboards.
           </p>
         </div>
 

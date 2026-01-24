@@ -188,9 +188,7 @@ export default function CustomerMagicLinkPage() {
           </p>
           <div className="mt-4">
             <div className="rounded-xl border border-dashed border-zinc-200 p-3">
-              <p className="text-xs font-semibold uppercase text-zinc-500">
-                Agent video (Beyond Presence placeholder)
-              </p>
+              <p className="text-xs font-semibold uppercase text-zinc-500">Agent video</p>
               <video
                 ref={videoRef}
                 className="mt-2 h-48 w-full rounded-lg bg-black"

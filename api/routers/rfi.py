@@ -25,7 +25,12 @@ from ..models import (
     RfiSummaryRead,
     StartCallRequest,
 )
-from ..settings import AGENT_SERVICE_URL
+from ..settings import (
+    AGENT_SERVICE_URL,
+    EMAIL_FROM,
+    MAGIC_LINK_BASE_URL,
+    RESEND_API_KEY,
+)
 
 router = APIRouter()
 
@@ -81,6 +86,7 @@ def send_invite(
     session.add(case)
     session.commit()
     session.refresh(case)
+    _maybe_send_magic_link(case)
     return RfiCaseRead.model_validate(case)
 
 
@@ -215,6 +221,40 @@ def _get_case_or_404(session: Session, rfi_id: str) -> RfiCase:
     if not case:
         raise HTTPException(status_code=404, detail="RFI not found")
     return case
+
+
+def _maybe_send_magic_link(case: RfiCase) -> None:
+    if not case.magic_token:
+        return
+    if not (RESEND_API_KEY and EMAIL_FROM):
+        return
+    magic_link = f"{MAGIC_LINK_BASE_URL.rstrip('/')}/c/{case.magic_token}"
+    payload = {
+        "from": EMAIL_FROM,
+        "to": [case.customer_email],
+        "subject": "Your clarification request",
+        "html": (
+            "<p>Hello,</p>"
+            "<p>Please use the link below to complete your clarification request:</p>"
+            f"<p><a href=\"{magic_link}\">{magic_link}</a></p>"
+            "<p>Thank you.</p>"
+        ),
+        "text": (
+            "Hello,\n\n"
+            "Please use the link below to complete your clarification request:\n"
+            f"{magic_link}\n\n"
+            "Thank you."
+        ),
+    }
+    try:
+        httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+            json=payload,
+            timeout=10.0,
+        )
+    except httpx.HTTPError:
+        pass
 
 
 def _list_questions(session: Session, rfi_id: UUID) -> List[RfiQuestionRead]:
