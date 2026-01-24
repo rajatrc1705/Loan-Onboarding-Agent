@@ -29,6 +29,7 @@ from ..settings import (
     AGENT_SERVICE_URL,
     EMAIL_FROM,
     MAGIC_LINK_BASE_URL,
+    N8N_EMAIL_WEBHOOK_URL,
     RESEND_API_KEY,
 )
 
@@ -237,9 +238,21 @@ def _get_case_or_404(session: Session, rfi_id: str) -> RfiCase:
 def _maybe_send_magic_link(case: RfiCase) -> None:
     if not case.magic_token:
         return
+    magic_link = f"{MAGIC_LINK_BASE_URL.rstrip('/')}/c/{case.magic_token}"
+    if N8N_EMAIL_WEBHOOK_URL:
+        payload = {
+            "to": case.customer_email,
+            "from": EMAIL_FROM,
+            "subject": "Your clarification request",
+            "magic_link": magic_link,
+        }
+        try:
+            httpx.post(N8N_EMAIL_WEBHOOK_URL, json=payload, timeout=10.0)
+        except httpx.HTTPError:
+            pass
+        return
     if not (RESEND_API_KEY and EMAIL_FROM):
         return
-    magic_link = f"{MAGIC_LINK_BASE_URL.rstrip('/')}/c/{case.magic_token}"
     payload = {
         "from": EMAIL_FROM,
         "to": [case.customer_email],
