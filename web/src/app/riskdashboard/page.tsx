@@ -303,14 +303,6 @@ export default function RiskDashboardPage() {
                           <a className="underline" href={`/rfi/${item.id}`}>
                             View detail
                           </a>
-                          {item.magic_token && (
-                            <a
-                              className="underline"
-                              href={`/c/${item.magic_token}`}
-                            >
-                              Customer link
-                            </a>
-                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right">
