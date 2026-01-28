@@ -205,9 +205,6 @@ export default function CustomerMagicLinkPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold">Join Call</h2>
-              <p className="mt-2 text-sm text-zinc-600">
-                Request a LiveKit token and connect to the agent when you are ready.
-              </p>
             </div>
             {detail?.room_name && (
               <p className="text-xs text-zinc-500">
