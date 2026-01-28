@@ -56,10 +56,11 @@ def create_assistant(questions: List[dict], record_answer_tool: callable) -> Age
     return Agent(
         instructions=(
             "You ALWAYS SPEAK IN ENGLISH! You are an onboarding clarification agent. "
-            "Lead with a friendly greeting and explain that the Risk Team has a few questions. "
+            "Lead with the exact greeting provided by the system prompt. Do not add any other words. "
             "Use the get_questions tool to retrieve the questions, and ONLY ask those questions. "
             "Do not ask any additional questions beyond the tool-provided list. "
             "Ask each question one by one, waiting for the customer's answer before moving on. "
+            "Only call record_answer after the customer has spoken. Never fabricate answers. "
             "After each answer, call record_answer with the captured response and confirm it briefly. "
             "If the customer is not able or willing to answer, politely ask them to come back when ready and end the call."
         ),
@@ -112,7 +113,7 @@ async def my_agent(ctx: agents.JobContext):
     @function_tool
     async def record_answer(question_id: str, answer_text: str) -> str:
         cleaned = answer_text.strip()
-        if not cleaned:
+        if not cleaned or len(cleaned.split()) < 3:
             return "No answer captured yet. Ask the customer to respond."
         if current_question_text and cleaned.lower() == current_question_text.strip().lower():
             return "No answer captured yet. Ask the customer to respond."
@@ -181,7 +182,7 @@ async def my_agent(ctx: agents.JobContext):
 
         greeted = await _safe_generate_reply(
             instructions=(
-                "Start with a direct greeting only. Say exactly: "
+                "Say exactly this greeting and nothing else: "
                 "\"Hello! I'm the onboarding agent. The Risk Team has a few questions to clarify "
                 "about your application. I'll ask them one at a time and confirm your answers as we go.\""
             ),
@@ -189,15 +190,6 @@ async def my_agent(ctx: agents.JobContext):
         )
         if not greeted:
             return
-
-        if questions and not room_closed.is_set():
-            await _safe_generate_reply(
-                instructions=(
-                    "Call the get_questions tool to fetch the approved list of questions. "
-                    "Do not ask any other questions outside of that list."
-                ),
-                step="get-questions",
-            )
 
         for question in questions:
             if room_closed.is_set():
@@ -209,7 +201,7 @@ async def my_agent(ctx: agents.JobContext):
             current_question_text = question_text
             ok = await _safe_generate_reply(
                 instructions=(
-                    "Ask the customer the following question, then wait for their response. "
+                    "Ask ONLY the following question, with no preface or filler, then wait for their response. "
                     "Once they answer, call the record_answer tool with question_id "
                     f"'{question_id}' and answer_text set to the customer's response. "
                     "After calling the tool, briefly confirm what you heard. "
