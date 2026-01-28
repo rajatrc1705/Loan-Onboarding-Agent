@@ -107,10 +107,16 @@ async def my_agent(ctx: agents.JobContext):
     questions = detail.get("questions", []) if detail else []
     recorded_answers: dict[str, str] = {}
     answer_events: dict[str, asyncio.Event] = {}
+    current_question_text: str | None = None
 
     @function_tool
     async def record_answer(question_id: str, answer_text: str) -> str:
-        recorded_answers[question_id] = answer_text
+        cleaned = answer_text.strip()
+        if not cleaned:
+            return "No answer captured yet. Ask the customer to respond."
+        if current_question_text and cleaned.lower() == current_question_text.strip().lower():
+            return "No answer captured yet. Ask the customer to respond."
+        recorded_answers[question_id] = cleaned
         answer_events.setdefault(question_id, asyncio.Event()).set()
         if persist_answers:
             await post_answers(
@@ -175,8 +181,9 @@ async def my_agent(ctx: agents.JobContext):
 
         greeted = await _safe_generate_reply(
             instructions=(
-                "Hello! I'm the onboarding agent. The risk team has a few questions to clarify "
-                "about your application. I'll ask them one at a time and confirm your answers as we go."
+                "Start with a direct greeting only. Say exactly: "
+                "\"Hello! I'm the onboarding agent. The Risk Team has a few questions to clarify "
+                "about your application. I'll ask them one at a time and confirm your answers as we go.\""
             ),
             step="greeting",
         )
@@ -199,6 +206,7 @@ async def my_agent(ctx: agents.JobContext):
             question_text = question.get("question_text")
             if not question_id or not question_text:
                 continue
+            current_question_text = question_text
             ok = await _safe_generate_reply(
                 instructions=(
                     "Ask the customer the following question, then wait for their response. "
