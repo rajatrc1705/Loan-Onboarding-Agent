@@ -55,7 +55,7 @@ def create_assistant(questions: List[dict], record_answer_tool: callable) -> Age
 
     return Agent(
         instructions=(
-            "You ALWAYS SPEAK IN ENGLISH! You are an onboarding clarification agent. "
+            "You are an onboarding clarification agent. "
             "Lead with the exact greeting provided by the system prompt. Do not add any other words. "
             "Use the get_questions tool to retrieve the questions, and ONLY ask those questions. "
             "Do not ask any additional questions beyond the tool-provided list. "
@@ -136,15 +136,18 @@ async def my_agent(ctx: agents.JobContext):
         await room_closed.wait()
         await session.aclose()
 
+    reply_lock = asyncio.Lock()
+
     async def _safe_generate_reply(instructions: str, step: str) -> bool:
         if room_closed.is_set():
             return False
-        try:
-            await session.generate_reply(instructions=instructions)
-            return True
-        except Exception as exc:  # noqa: BLE001 - handle realtime timeouts
-            logger.warning("generate_reply failed at %s: %s", step, exc)
-            return False
+        async with reply_lock:
+            try:
+                await session.generate_reply(instructions=instructions)
+                return True
+            except Exception as exc:  # noqa: BLE001 - handle realtime timeouts
+                logger.warning("generate_reply failed at %s: %s", step, exc)
+                return False
 
     async def _wait_for_answer(question_id: str) -> bool:
         event = answer_events.setdefault(question_id, asyncio.Event())
