@@ -251,6 +251,8 @@ async def my_agent(ctx: agents.JobContext):
             await post_summary(rfi_id, summary_text, {"answers": structured_answers})
 
         if end_call_on_complete:
+            if ctx.room.isconnected():
+                await ctx.room.disconnect()
             ctx.shutdown("complete")
             return
 

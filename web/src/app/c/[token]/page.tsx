@@ -272,7 +272,7 @@ export default function CustomerMagicLinkPage() {
               </span>
             )}
           </div>
-          {detail?.summary ? (
+          {detail?.answers?.length ? (
             <div className="mt-4 space-y-3">
               {detail.questions.map((question) => {
                 const answer = answersByQuestionId.get(question.id);
@@ -295,7 +295,7 @@ export default function CustomerMagicLinkPage() {
             </div>
           ) : (
             <div className="mt-4 rounded-lg border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
-              We will show a summary once the call is completed.
+              We will show your answers once they are captured.
             </div>
           )}
           <div className="mt-4 flex items-center gap-3">
