@@ -142,9 +142,6 @@ export default function RiskDashboardPage() {
             Internal
           </p>
           <h1 className="text-2xl font-semibold">Risk Dashboard</h1>
-          <p className="text-sm text-zinc-600">
-            Create RFI cases, add questions, and send invites.
-          </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
               <p className="text-xs font-semibold uppercase text-zinc-500">Total cases</p>

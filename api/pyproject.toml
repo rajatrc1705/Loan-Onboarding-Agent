@@ -11,4 +11,5 @@ dependencies = [
     "sqlmodel>=0.0.22",
     "uvicorn[standard]>=0.30.0",
     "psycopg[binary]>=3.2.3",
+    "alembic>=1.13.2",
 ]

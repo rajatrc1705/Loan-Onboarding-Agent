@@ -19,6 +19,25 @@ class RfiStatus(str, Enum):
     CLOSED = "CLOSED"
 
 
+class CustomerStage(str, Enum):
+    EXISTING_CUSTOMER = "EXISTING_CUSTOMER"
+    LEAD = "LEAD"
+    APPLICATION_PENDING = "APPLICATION_PENDING"
+
+
+class CustomerProfile(SQLModel, table=True):
+    __tablename__ = "customer_profiles"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    customer_name: str
+    bank_account_number: str
+    customer_id: str = Field(max_length=5, index=True)
+    stage: CustomerStage
+    business_type: Optional[str] = None
+    company_type: Optional[str] = None
+    company_url: Optional[str] = None
+    google_drive_link: Optional[str] = None
+
+
 class RfiCase(SQLModel, table=True):
     __tablename__ = "rfi_cases"
     id: UUID = Field(default_factory=uuid4, primary_key=True)
