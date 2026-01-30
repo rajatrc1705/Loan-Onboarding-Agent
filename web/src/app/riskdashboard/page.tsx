@@ -167,12 +167,6 @@ export default function RiskDashboardPage() {
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold">New RFI</h2>
-          <p className="mt-2 text-sm text-zinc-600">
-            API base URL:{" "}
-            <span className="font-mono text-xs text-zinc-800">
-              {apiBaseUrl()}
-            </span>
-          </p>
           <form className="mt-4 grid gap-4" onSubmit={handleSubmit}>
             <div className="grid gap-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -279,7 +273,7 @@ export default function RiskDashboardPage() {
                   <th className="px-4 py-2">Customer</th>
                   <th className="px-4 py-2">Status</th>
                   <th className="px-4 py-2">Updated</th>
-                  <th className="px-4 py-2">Links</th>
+                  <th className="px-4 py-2">Summary</th>
                   <th className="px-4 py-2 text-right">Actions</th>
                 </tr>
               </thead>
@@ -299,11 +293,12 @@ export default function RiskDashboardPage() {
                         {new Date(item.updated_at).toLocaleString()}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-col gap-1 text-xs">
-                          <a className="underline" href={`/rfi/${item.id}`}>
-                            View detail
-                          </a>
-                        </div>
+                        <a
+                          className="inline-flex rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-200"
+                          href={`/rfi/${item.id}`}
+                        >
+                          Summary
+                        </a>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
