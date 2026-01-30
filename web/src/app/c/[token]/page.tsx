@@ -61,12 +61,14 @@ export default function CustomerMagicLinkPage() {
     };
   }, [room]);
 
-  const handleJoin = async () => {
+  const handleStartAndJoin = async () => {
     if (!detail) return;
     setError(null);
     setIsStarting(true);
     try {
       await apiFetch(`/rfi/${detail.id}/start-call`, { method: "POST" });
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await handleConnect();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start call");
     } finally {
@@ -229,18 +231,14 @@ export default function CustomerMagicLinkPage() {
                 <button
                   className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
                   type="button"
-                  onClick={handleJoin}
-                  disabled={!detail || isStarting}
+                  onClick={handleStartAndJoin}
+                  disabled={!detail || isStarting || isConnecting || isConnected}
                 >
-                  {isStarting ? "Starting..." : "Start agent"}
-                </button>
-                <button
-                  className="inline-flex items-center justify-center rounded-full border border-zinc-200 px-5 py-2 text-sm font-semibold text-zinc-700 disabled:opacity-60"
-                  type="button"
-                  onClick={handleConnect}
-                  disabled={!detail || isConnecting || isConnected}
-                >
-                  {isConnected ? "Connected" : isConnecting ? "Connecting..." : "Join call"}
+                  {isConnected
+                    ? "Connected"
+                    : isStarting || isConnecting
+                      ? "Starting..."
+                      : "Start & join call"}
                 </button>
                 <button
                   className="inline-flex items-center justify-center rounded-full border border-zinc-200 px-5 py-2 text-sm font-semibold text-zinc-700 disabled:opacity-60"
