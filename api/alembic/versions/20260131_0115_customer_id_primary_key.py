@@ -13,19 +13,86 @@ depends_on = None
 
 
 def upgrade() -> None:
-    if op.get_bind().dialect.name == "sqlite":
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        return
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            """
+            ALTER TABLE applications
+            DROP CONSTRAINT IF EXISTS applications_customer_id_fkey;
+            """
+        )
+        op.execute(
+            """
+            ALTER TABLE customer_profiles
+            DROP CONSTRAINT IF EXISTS customer_profiles_customer_id_key;
+            """
+        )
+        op.execute(
+            """
+            ALTER TABLE customer_profiles
+            DROP CONSTRAINT IF EXISTS customer_profiles_pkey;
+            """
+        )
+        op.execute(
+            """
+            ALTER TABLE customer_profiles
+            ADD CONSTRAINT customer_profiles_pkey PRIMARY KEY (customer_id);
+            """
+        )
+        op.execute(
+            """
+            ALTER TABLE applications
+            ADD CONSTRAINT applications_customer_id_fkey
+            FOREIGN KEY (customer_id)
+            REFERENCES customer_profiles (customer_id);
+            """
+        )
         return
     with op.batch_alter_table("customer_profiles") as batch_op:
-        batch_op.drop_constraint(
-            "customer_profiles_customer_id_key",
-            type_="unique",
-        )
+        batch_op.drop_constraint("customer_profiles_customer_id_key", type_="unique")
         batch_op.drop_constraint(None, type_="primary")
         batch_op.create_primary_key("customer_profiles_pkey", ["customer_id"])
 
 
 def downgrade() -> None:
-    if op.get_bind().dialect.name == "sqlite":
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        return
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            """
+            ALTER TABLE applications
+            DROP CONSTRAINT IF EXISTS applications_customer_id_fkey;
+            """
+        )
+        op.execute(
+            """
+            ALTER TABLE customer_profiles
+            DROP CONSTRAINT IF EXISTS customer_profiles_pkey;
+            """
+        )
+        op.execute(
+            """
+            ALTER TABLE customer_profiles
+            ADD CONSTRAINT customer_profiles_pkey PRIMARY KEY (id);
+            """
+        )
+        op.execute(
+            """
+            ALTER TABLE customer_profiles
+            ADD CONSTRAINT customer_profiles_customer_id_key UNIQUE (customer_id);
+            """
+        )
+        op.execute(
+            """
+            ALTER TABLE applications
+            ADD CONSTRAINT applications_customer_id_fkey
+            FOREIGN KEY (customer_id)
+            REFERENCES customer_profiles (customer_id);
+            """
+        )
         return
     with op.batch_alter_table("customer_profiles") as batch_op:
         batch_op.drop_constraint(None, type_="primary")

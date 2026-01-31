@@ -5,6 +5,7 @@ Revises: 20260130_2355
 Create Date: 2026-01-31 01:00:00.000000
 """
 from alembic import op
+import sqlalchemy as sa
 
 revision = "20260131_0100"
 down_revision = "20260130_2355"
@@ -13,8 +14,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    if op.get_bind().dialect.name == "sqlite":
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
         return
+    if bind.dialect.name == "postgresql":
+        exists = bind.execute(
+            sa.text(
+                """
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'customer_profiles_customer_id_key'
+                """
+            )
+        ).scalar()
+        if exists:
+            return
     with op.batch_alter_table("customer_profiles") as batch_op:
         batch_op.create_unique_constraint(
             "customer_profiles_customer_id_key", ["customer_id"]
@@ -22,8 +36,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    if op.get_bind().dialect.name == "sqlite":
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
         return
+    if bind.dialect.name == "postgresql":
+        exists = bind.execute(
+            sa.text(
+                """
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'customer_profiles_customer_id_key'
+                """
+            )
+        ).scalar()
+        if not exists:
+            return
     with op.batch_alter_table("customer_profiles") as batch_op:
         batch_op.drop_constraint(
             "customer_profiles_customer_id_key", type_="unique"

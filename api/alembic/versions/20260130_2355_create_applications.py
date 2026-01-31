@@ -6,6 +6,7 @@ Create Date: 2026-01-30 23:55:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 revision = "20260130_2355"
 down_revision = "20260128_2300"
@@ -14,6 +15,35 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if inspect(bind).has_table("applications"):
+        return
+
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM customer_profiles
+                    GROUP BY customer_id
+                    HAVING COUNT(*) > 1
+                ) THEN
+                    RAISE EXCEPTION 'Duplicate customer_id values found in customer_profiles; cannot add FK.';
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conname = 'customer_profiles_customer_id_key'
+                ) THEN
+                    ALTER TABLE customer_profiles
+                    ADD CONSTRAINT customer_profiles_customer_id_key UNIQUE (customer_id);
+                END IF;
+            END $$;
+            """
+        )
+
     op.create_table(
         "applications",
         sa.Column("application_id", sa.String(), primary_key=True, nullable=False),
@@ -46,7 +76,7 @@ def upgrade() -> None:
             "id": "00000000-0000-0000-0000-000000000001",
             "name": "Test Customer",
             "bank": "TEST-ACC-0001",
-            "customer_id": "CUST01",
+            "customer_id": "CUST1",
             "stage": "LEAD",
         },
     )
@@ -59,8 +89,8 @@ def upgrade() -> None:
             "(SELECT 1 FROM applications WHERE application_id = :app_id)"
         ),
         {
-            "app_id": "CUST01-APP-001",
-            "customer_id": "CUST01",
+            "app_id": "CUST1-APP-001",
+            "customer_id": "CUST1",
             "loan": 250000.0,
             "tenure": 24,
             "issue": None,
