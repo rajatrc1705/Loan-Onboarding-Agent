@@ -10,5 +10,6 @@ RUN python -m venv /app/.venv && \
     /app/.venv/bin/pip install -r /tmp/requirements.txt
 
 COPY api /app/api
+RUN chmod +x /app/api/scripts/start.sh
 
-CMD ["sh", "-c", "/app/.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["/app/api/scripts/start.sh"]

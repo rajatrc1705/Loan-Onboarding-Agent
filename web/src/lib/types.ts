@@ -19,6 +19,20 @@ export type RfiCaseSummary = {
   updated_at: string;
 };
 
+export type Application = {
+  application_id: string;
+  customer_id: string;
+  requested_loan_amount: number;
+  requested_tenure_amount: number;
+  issue_status?: string | null;
+  created_at: string;
+};
+
+export type ApplicationList = {
+  items: Application[];
+  total: number;
+};
+
 export type RfiQuestion = {
   id: string;
   rfi_id: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import { apiBaseUrl, apiFetch } from "@/lib/api";
-import { RfiCaseSummary } from "@/lib/types";
+import { Application, ApplicationList, RfiCaseSummary } from "@/lib/types";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 export default function RiskDashboardPage() {
@@ -9,6 +9,7 @@ export default function RiskDashboardPage() {
   const [applicationId, setApplicationId] = useState("");
   const [questions, setQuestions] = useState<string[]>([""]);
   const [cases, setCases] = useState<RfiCaseSummary[]>([]);
+  const [applicationOptions, setApplicationOptions] = useState<Application[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,8 +59,22 @@ export default function RiskDashboardPage() {
     }
   };
 
+  const loadApplicationOptions = async () => {
+    try {
+      const response = await apiFetch<ApplicationList>(
+        "/applications?limit=1000&offset=0"
+      );
+      setApplicationOptions(response.items);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load application IDs"
+      );
+    }
+  };
+
   useEffect(() => {
     loadCases();
+    loadApplicationOptions();
   }, []);
 
   const updateQuestion = (index: number, value: string) => {
@@ -110,6 +125,7 @@ export default function RiskDashboardPage() {
       setApplicationId("");
       setQuestions([""]);
       await loadCases();
+      await loadApplicationOptions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create RFI");
     } finally {
@@ -133,6 +149,7 @@ export default function RiskDashboardPage() {
       setDeletingId(null);
     }
   };
+
 
   return (
     <div className="min-h-screen bg-zinc-50 px-6 py-12 text-zinc-900">
@@ -181,12 +198,21 @@ export default function RiskDashboardPage() {
               <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Application ID (optional)
               </label>
-              <input
-                className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                placeholder="APP-1234"
+              <select
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
                 value={applicationId}
                 onChange={(event) => setApplicationId(event.target.value)}
-              />
+              >
+                <option value="">Select an application ID</option>
+                {applicationOptions.map((application) => (
+                  <option
+                    key={application.application_id}
+                    value={application.application_id}
+                  >
+                    {application.application_id}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="grid gap-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
