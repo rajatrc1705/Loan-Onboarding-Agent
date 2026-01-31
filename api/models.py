@@ -27,10 +27,10 @@ class CustomerStage(str, Enum):
 
 class CustomerProfile(SQLModel, table=True):
     __tablename__ = "customer_profiles"
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    id: UUID = Field(default_factory=uuid4)
     customer_name: str
     bank_account_number: str
-    customer_id: str = Field(max_length=5, index=True)
+    customer_id: str = Field(max_length=5, primary_key=True)
     stage: CustomerStage
     business_type: Optional[str] = None
     company_type: Optional[str] = None
