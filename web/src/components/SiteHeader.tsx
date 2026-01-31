@@ -11,7 +11,7 @@ const navLinks = [
 
 export default function SiteHeader() {
   const pathname = usePathname();
-  if (pathname?.startsWith("/c/")) {
+  if (pathname?.startsWith("/c/") || pathname === "/marketing") {
     return null;
   }
 
