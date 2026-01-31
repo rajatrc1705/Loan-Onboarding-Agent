@@ -6,6 +6,7 @@ Create Date: 2026-01-28 23:00:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 
 revision = "20260128_2300"
@@ -16,6 +17,8 @@ depends_on = None
 
 def upgrade() -> None:
     bind = op.get_bind()
+    if inspect(bind).has_table("customer_profiles"):
+        return
     if bind.dialect.name == "postgresql":
         op.execute(
             """
