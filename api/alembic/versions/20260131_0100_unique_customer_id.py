@@ -13,12 +13,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_unique_constraint(
-        "customer_profiles_customer_id_key", "customer_profiles", ["customer_id"]
-    )
+    if op.get_bind().dialect.name == "sqlite":
+        return
+    with op.batch_alter_table("customer_profiles") as batch_op:
+        batch_op.create_unique_constraint(
+            "customer_profiles_customer_id_key", ["customer_id"]
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        "customer_profiles_customer_id_key", "customer_profiles", type_="unique"
-    )
+    if op.get_bind().dialect.name == "sqlite":
+        return
+    with op.batch_alter_table("customer_profiles") as batch_op:
+        batch_op.drop_constraint(
+            "customer_profiles_customer_id_key", type_="unique"
+        )

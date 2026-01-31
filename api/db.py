@@ -1,3 +1,5 @@
+import os
+
 from sqlmodel import Session, SQLModel, create_engine
 
 from .settings import DATABASE_URL
@@ -13,6 +15,12 @@ engine = create_engine(DATABASE_URL, connect_args=_sqlite_connect_args(DATABASE_
 
 
 def init_db() -> None:
+    auto_create = os.getenv("AUTO_CREATE_TABLES")
+    if auto_create is None:
+        auto_create = "true" if DATABASE_URL.startswith("sqlite") else "false"
+    if auto_create.lower() != "true":
+        print("Skipping create_all; AUTO_CREATE_TABLES is disabled.")
+        return
     print("Creating all tables, using this engine: ", engine)
     SQLModel.metadata.create_all(engine)
 
