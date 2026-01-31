@@ -38,6 +38,18 @@ class CustomerProfile(SQLModel, table=True):
     google_drive_link: Optional[str] = None
 
 
+class Application(SQLModel, table=True):
+    __tablename__ = "applications"
+    application_id: str = Field(primary_key=True)
+    customer_id: str = Field(
+        max_length=5, foreign_key="customer_profiles.customer_id", index=True
+    )
+    requested_loan_amount: float
+    requested_tenure_amount: int
+    issue_status: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class RfiCase(SQLModel, table=True):
     __tablename__ = "rfi_cases"
     id: UUID = Field(default_factory=uuid4, primary_key=True)
@@ -88,6 +100,20 @@ class RfiSummary(SQLModel, table=True):
 class RfiCaseCreate(SQLModel):
     customer_email: str
     application_id: Optional[str] = None
+
+
+class ApplicationRead(SQLModel):
+    application_id: str
+    customer_id: str
+    requested_loan_amount: float
+    requested_tenure_amount: int
+    issue_status: Optional[str] = None
+    created_at: datetime
+
+
+class ApplicationList(SQLModel):
+    items: List[ApplicationRead]
+    total: int
 
 
 class RfiCaseRead(SQLModel):

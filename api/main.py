@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import agent, customer, livekit, rfi
+from .routers import agent, applications, customer, livekit, rfi
 from .db import init_db
 
 app = FastAPI(title="Onboarding Control Tower API")
@@ -31,6 +31,7 @@ app.include_router(rfi.router, prefix="/rfi", tags=["rfi"])
 app.include_router(customer.router, prefix="/c", tags=["customer"])
 app.include_router(livekit.router, prefix="/livekit", tags=["livekit"])
 app.include_router(agent.router, prefix="/agent", tags=["agent"])
+app.include_router(applications.router, prefix="/applications", tags=["applications"])
 
 
 @app.post("/admin/init-db")
