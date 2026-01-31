@@ -6,6 +6,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 export default function RiskDashboardPage() {
   const [customerEmail, setCustomerEmail] = useState("");
+  const [customerEmailMode, setCustomerEmailMode] = useState<"existing" | "custom">(
+    "custom"
+  );
+  const [customerEmails, setCustomerEmails] = useState<string[]>([]);
   const [applicationId, setApplicationId] = useState("");
   const [questions, setQuestions] = useState<string[]>([""]);
   const [cases, setCases] = useState<RfiCaseSummary[]>([]);
@@ -59,6 +63,17 @@ export default function RiskDashboardPage() {
     }
   };
 
+  const loadCustomerEmails = async () => {
+    try {
+      const response = await apiFetch<string[]>("/rfi/customer-emails");
+      setCustomerEmails(response);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load customer emails"
+      );
+    }
+  };
+
   const loadApplicationOptions = async () => {
     try {
       const response = await apiFetch<ApplicationList>(
@@ -75,6 +90,7 @@ export default function RiskDashboardPage() {
   useEffect(() => {
     loadCases();
     loadApplicationOptions();
+    loadCustomerEmails();
   }, []);
 
   const updateQuestion = (index: number, value: string) => {
@@ -124,8 +140,10 @@ export default function RiskDashboardPage() {
       setCustomerEmail("");
       setApplicationId("");
       setQuestions([""]);
+      setCustomerEmailMode("custom");
       await loadCases();
       await loadApplicationOptions();
+      await loadCustomerEmails();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create RFI");
     } finally {
@@ -186,13 +204,45 @@ export default function RiskDashboardPage() {
               <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Customer Email
               </label>
-              <input
-                className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                placeholder="customer@company.com"
-                value={customerEmail}
-                onChange={(event) => setCustomerEmail(event.target.value)}
-                required
-              />
+              <div className="grid gap-2 sm:grid-cols-[160px_1fr]">
+                <select
+                  className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  value={customerEmailMode}
+                  onChange={(event) => {
+                    const mode = event.target.value as "existing" | "custom";
+                    setCustomerEmailMode(mode);
+                    if (mode === "existing") {
+                      setCustomerEmail("");
+                    }
+                  }}
+                >
+                  <option value="custom">Custom email</option>
+                  <option value="existing">Existing customer</option>
+                </select>
+                {customerEmailMode === "existing" ? (
+                  <select
+                    className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    value={customerEmail}
+                    onChange={(event) => setCustomerEmail(event.target.value)}
+                    required
+                  >
+                    <option value="">Select a customer email</option>
+                    {customerEmails.map((email) => (
+                      <option key={email} value={email}>
+                        {email}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="customer@company.com"
+                    value={customerEmail}
+                    onChange={(event) => setCustomerEmail(event.target.value)}
+                    required
+                  />
+                )}
+              </div>
             </div>
             <div className="grid gap-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
