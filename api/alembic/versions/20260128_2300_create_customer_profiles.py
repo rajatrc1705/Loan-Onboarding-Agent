@@ -15,22 +15,44 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'customerstage') THEN
+                    CREATE TYPE customerstage AS ENUM (
+                        'EXISTING_CUSTOMER',
+                        'LEAD',
+                        'APPLICATION_PENDING'
+                    );
+                END IF;
+            END $$;
+            """
+        )
+        customer_stage = postgresql.ENUM(
+            "EXISTING_CUSTOMER",
+            "LEAD",
+            "APPLICATION_PENDING",
+            name="customerstage",
+            create_type=False,
+        )
+    else:
+        customer_stage = sa.Enum(
+            "EXISTING_CUSTOMER",
+            "LEAD",
+            "APPLICATION_PENDING",
+            name="customerstage",
+        )
+
     op.create_table(
         "customer_profiles",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("customer_name", sa.Text(), nullable=False),
         sa.Column("bank_account_number", sa.Text(), nullable=False),
         sa.Column("customer_id", sa.String(length=5), nullable=False),
-        sa.Column(
-            "stage",
-            sa.Enum(
-                "EXISTING_CUSTOMER",
-                "LEAD",
-                "APPLICATION_PENDING",
-                name="customerstage",
-            ),
-            nullable=False,
-        ),
+        sa.Column("stage", customer_stage, nullable=False),
         sa.Column("business_type", sa.Text(), nullable=True),
         sa.Column("company_type", sa.Text(), nullable=True),
         sa.Column("company_url", sa.Text(), nullable=True),
