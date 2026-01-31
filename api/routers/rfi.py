@@ -107,6 +107,19 @@ def list_rfi_cases(
     return [RfiCaseRead.model_validate(case) for case in cases]
 
 
+@router.get("/customer-emails")
+def list_customer_emails(
+    session: Session = Depends(get_session),
+) -> List[str]:
+    statement = (
+        select(RfiCase.customer_email)
+        .distinct()
+        .order_by(RfiCase.customer_email.asc())
+    )
+    rows = session.exec(statement).all()
+    return [row[0] if isinstance(row, tuple) else row for row in rows]
+
+
 @router.get("/{rfi_id}")
 def get_rfi_case(
     rfi_id: str, session: Session = Depends(get_session)
