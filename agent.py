@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from livekit import agents, rtc
 from livekit.agents import AgentServer, AgentSession, Agent, room_io, function_tool
 from livekit.plugins import openai, noise_cancellation, bey
+from openai.types.beta.realtime.session import TurnDetection
 
 load_dotenv(".env.local")
 
@@ -62,7 +63,10 @@ def create_assistant(questions: List[dict], record_answer_tool: callable) -> Age
             "Ask each question one by one, waiting for the customer's answer before moving on. "
             "Only call record_answer after the customer has spoken. Never fabricate answers. "
             "After each answer, call record_answer with the captured response and confirm it briefly. "
-            "If the customer is not able or willing to answer, politely ask them to come back when ready and end the call."
+            "If the customer is not able or willing to answer, politely ask them to come back when ready and end the call. "
+            "IMPORTANT: If the user interrupts you while you are speaking, stop immediately and listen to what they have to say. "
+            "Acknowledge their input naturally (e.g., 'Sure, go ahead' or 'Yes?') and respond to their question or comment before continuing. "
+            "If they ask to skip a question, move to the next one. If they want to go back to a previous question, accommodate that request."
         ),
         tools=[get_questions, record_answer_tool],
     )
@@ -101,7 +105,19 @@ async def my_agent(ctx: agents.JobContext):
 
     ctx.room.on("disconnected", _on_room_disconnected)
 
-    session = AgentSession(llm=openai.realtime.RealtimeModel(voice="coral"))
+    session = AgentSession(
+        llm=openai.realtime.RealtimeModel(
+            voice="coral",
+            turn_detection=TurnDetection(
+                type="server_vad",
+                threshold=0.5,  # Sensitivity: higher = requires louder audio
+                prefix_padding_ms=300,  # Audio to include before detected speech
+                silence_duration_ms=500,  # How long silence before turn ends
+                create_response=True,  # Auto-create response after user stops
+                interrupt_response=True,  # Allow user to interrupt agent mid-speech
+            ),
+        )
+    )
     close_task: asyncio.Task | None = None
 
     detail = await fetch_rfi_detail(rfi_id)

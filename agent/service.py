@@ -12,6 +12,7 @@ from livekit import rtc
 from livekit.agents import Agent, AgentSession, room_io, function_tool
 from livekit.plugins import openai, noise_cancellation
 from livekit.plugins import bey
+from openai.types.beta.realtime.session import TurnDetection
 
 load_dotenv(".env.local")
 
@@ -71,11 +72,14 @@ def create_assistant(questions: List[dict], record_answer_tool: callable) -> Age
     return Agent(
         instructions=(
             "You ALWAYS SPEAK IN ENGLISH! You are an onboarding clarification agent. "
-            "Greet the user and explain that the Risk Team has some questions for them."
+            "Greet the user and explain that the Risk Team has some questions for them. "
             "Use the get_questions tool to retrieve the questions, then ask each question one by one. "
             "After each answer, call record_answer with the captured response and confirm it briefly. "
             "Wait for the customer to answer each question before moving to the next. "
-            "If the customer is not able to or wanting to answer them, ask the customer nicely to come back when ready, and prepare to end the call."
+            "If the customer is not able to or wanting to answer them, ask the customer nicely to come back when ready, and prepare to end the call. "
+            "IMPORTANT: If the user interrupts you while you are speaking, stop immediately and listen to what they have to say. "
+            "Acknowledge their input naturally (e.g., 'Sure, go ahead' or 'Yes?') and respond to their question or comment before continuing. "
+            "If they ask to skip a question, move to the next one. If they want to go back to a previous question, accommodate that request."
         ),
         tools=[get_questions, record_answer_tool],
     )
@@ -127,7 +131,19 @@ async def _run_agent(
     # For example, initialize avatar SDK using BEYOND_PRESENCE_API_KEY and
     # publish a video track into the room once available.
 
-    session = AgentSession(llm=openai.realtime.RealtimeModel(voice="coral"))
+    session = AgentSession(
+        llm=openai.realtime.RealtimeModel(
+            voice="coral",
+            turn_detection=TurnDetection(
+                type="server_vad",
+                threshold=0.5,  # Sensitivity: higher = requires louder audio
+                prefix_padding_ms=300,  # Audio to include before detected speech
+                silence_duration_ms=500,  # How long silence before turn ends
+                create_response=True,  # Auto-create response after user stops
+                interrupt_response=True,  # Allow user to interrupt agent mid-speech
+            ),
+        )
+    )
     close_task: asyncio.Task | None = None
 
     detail = await fetch_rfi_detail(rfi_id)
