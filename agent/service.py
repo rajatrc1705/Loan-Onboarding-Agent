@@ -136,7 +136,7 @@ async def _run_agent(
             voice="coral",
             turn_detection=TurnDetection(
                 type="server_vad",
-                threshold=0.5,  # Sensitivity: higher = requires louder audio
+                threshold=0.6,  # Sensitivity: higher = requires louder audio
                 prefix_padding_ms=300,  # Audio to include before detected speech
                 silence_duration_ms=500,  # How long silence before turn ends
                 create_response=True,  # Auto-create response after user stops
