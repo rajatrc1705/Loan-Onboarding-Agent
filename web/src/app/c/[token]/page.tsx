@@ -36,15 +36,24 @@ export default function CustomerMagicLinkPage() {
       }
     };
     loadDetail();
-    const interval = setInterval(() => {
-      if (!detail || detail.status === "DELIVERED") return;
-      loadDetail();
-    }, 5000);
     return () => {
       cancelled = true;
-      clearInterval(interval);
     };
-  }, [token, detail]);
+  }, [token]);
+
+  // Separate polling effect that uses a ref to avoid closure issues
+  useEffect(() => {
+    if (!token || detail?.status === "DELIVERED") return;
+    const interval = setInterval(async () => {
+      try {
+        const response = await apiFetch<CustomerRfiDetail>(`/c/${token}`);
+        setDetail(response);
+      } catch {
+        // Ignore polling errors
+      }
+    }, 3000); // Poll every 3 seconds for faster updates
+    return () => clearInterval(interval);
+  }, [token, detail?.status]);
 
   useEffect(() => {
     const handleTrackSubscribed = (track: any) => {

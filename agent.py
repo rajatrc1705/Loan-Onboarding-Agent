@@ -201,7 +201,7 @@ async def my_agent(ctx: agents.JobContext):
 
         greeted = await _safe_generate_reply(
             instructions=(
-                "Say exactly this greeting and nothing else: "
+                "Say: "
                 "\"Hello! I'm the onboarding agent. The Risk Team has a few questions to clarify "
                 "about your application. I'll ask them one at a time and confirm your answers as we go.\""
             ),
