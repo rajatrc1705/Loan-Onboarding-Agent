@@ -4,7 +4,7 @@ import { apiFetch } from "@/lib/api";
 import { CustomerRfiDetail } from "@/lib/types";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Room } from "livekit-client";
+import { Room, type RemoteTrack } from "livekit-client";
 
 export default function CustomerMagicLinkPage() {
   const params = useParams<{ token: string }>();
@@ -15,7 +15,6 @@ export default function CustomerMagicLinkPage() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const room = useMemo(() => new Room(), []);
@@ -56,8 +55,8 @@ export default function CustomerMagicLinkPage() {
   }, [token, detail?.status]);
 
   useEffect(() => {
-    const handleTrackSubscribed = (track: any) => {
-      if (track?.attach && videoRef.current) {
+    const handleTrackSubscribed = (track: RemoteTrack) => {
+      if (videoRef.current) {
         track.attach(videoRef.current);
       }
     };
@@ -127,25 +126,10 @@ export default function CustomerMagicLinkPage() {
     }
   };
 
-  const handleSubmit = async () => {
-    if (!token) return;
-    setError(null);
-    setIsSubmitting(true);
-    try {
-      await apiFetch(`/c/${token}/submit`, { method: "POST" });
-      const response = await apiFetch<CustomerRfiDetail>(`/c/${token}`);
-      setDetail(response);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to submit answers");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const answersByQuestionId = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, CustomerRfiDetail["answers"][number]>();
     detail?.answers?.forEach((answer) => {
-      map.set(answer.question_id, answer.answer_text);
+      map.set(answer.question_id, answer);
     });
     return map;
   }, [detail]);
@@ -178,7 +162,7 @@ export default function CustomerMagicLinkPage() {
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
               <p className="text-xs font-semibold uppercase text-zinc-500">Step 3</p>
               <p className="mt-2 text-sm text-zinc-700">
-                Review your answers and submit when ready.
+                Review the captured answers after the call.
               </p>
             </div>
           </div>
@@ -270,7 +254,7 @@ export default function CustomerMagicLinkPage() {
             <div>
               <h2 className="text-lg font-semibold">Review your answers</h2>
               <p className="mt-2 text-sm text-zinc-600">
-                After the call, review the summarized answers and submit when ready.
+                After the call, your answers are sent to the team automatically.
               </p>
             </div>
             {detail?.status === "DELIVERED" && (
@@ -294,8 +278,13 @@ export default function CustomerMagicLinkPage() {
                     <p className="mt-1">{question.question_text}</p>
                     <p className="mt-2 text-sm text-zinc-900">
                       <span className="font-semibold">Answer:</span>{" "}
-                      {answer || "No answer captured."}
+                      {answer?.answer_text || "No answer captured."}
                     </p>
+                    {answer && (
+                      <p className="mt-1 text-xs uppercase tracking-wide text-zinc-500">
+                        Status: {answer.answer_status.replace("_", " ")}
+                      </p>
+                    )}
                   </div>
                 );
               })}
@@ -305,23 +294,35 @@ export default function CustomerMagicLinkPage() {
               We will show your answers once they are captured.
             </div>
           )}
-          <div className="mt-4 flex items-center gap-3">
-            <button
-              className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
-              type="button"
-              onClick={handleSubmit}
-              disabled={!detail?.summary || isSubmitting || detail?.status === "DELIVERED"}
-            >
-              {detail?.status === "DELIVERED"
-                ? "Submitted"
-                : isSubmitting
-                  ? "Submitting..."
-                  : "Submit answers"}
-            </button>
-            {detail?.status === "DELIVERED" && (
-              <p className="text-sm text-emerald-600">Thank you! Your answers were submitted.</p>
-            )}
-          </div>
+          {detail?.customer_questions?.length ? (
+            <div className="mt-4 rounded-lg border border-zinc-200 p-4 text-sm text-zinc-700">
+              <p className="text-xs font-semibold uppercase text-zinc-500">
+                Questions you asked
+              </p>
+              <div className="mt-2 grid gap-2">
+                {detail.customer_questions.map((question) => (
+                  <div key={question.id}>
+                    <p>{question.question_text}</p>
+                    {question.needs_human_followup && (
+                      <p className="text-xs text-amber-700">
+                        The team will follow up on this.
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {detail?.status === "DELIVERED" && (
+            <p className="mt-4 text-sm text-emerald-600">
+              Thank you. Your answers were sent to the team.
+            </p>
+          )}
+          {detail?.needs_review && (
+            <p className="mt-4 text-sm text-amber-700">
+              The team may follow up if anything needs clarification.
+            </p>
+          )}
         </section>
       </div>
     </div>

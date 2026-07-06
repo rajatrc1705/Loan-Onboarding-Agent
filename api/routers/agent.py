@@ -4,12 +4,15 @@ from fastapi import APIRouter, Body, HTTPException
 from livekit import api
 
 from ..models import AgentJoinRequest
+from ..settings import LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL
 
 router = APIRouter()
 
 
-@router.post("/join")
-async def request_agent_join(payload: AgentJoinRequest = Body(...)) -> dict:
+async def dispatch_agent_join(payload: AgentJoinRequest) -> dict:
+    if not LIVEKIT_URL or not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
+        raise HTTPException(status_code=503, detail="LiveKit is not configured")
+
     metadata = json.dumps(
         {
             "rfi_id": str(payload.rfi_id),
@@ -34,3 +37,8 @@ async def request_agent_join(payload: AgentJoinRequest = Body(...)) -> dict:
         await lkapi.aclose()
 
     return {"status": "queued"}
+
+
+@router.post("/join")
+async def request_agent_join(payload: AgentJoinRequest = Body(...)) -> dict:
+    return await dispatch_agent_join(payload)

@@ -16,6 +16,7 @@ class RfiStatus(str, Enum):
     IN_CALL = "IN_CALL"
     SUMMARIZED = "SUMMARIZED"
     DELIVERED = "DELIVERED"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
     CLOSED = "CLOSED"
 
 
@@ -59,6 +60,8 @@ class RfiCase(SQLModel, table=True):
     room_name: Optional[str] = None
     magic_token: Optional[str] = None
     expires_at: Optional[datetime] = None
+    needs_review: bool = Field(default=False)
+    review_reason: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -76,13 +79,48 @@ class AnswerCapturedBy(str, Enum):
     CUSTOMER_TEXT = "customer_text"
 
 
+class AnswerStatus(str, Enum):
+    ANSWERED = "answered"
+    UNCLEAR = "unclear"
+    NOT_ANSWERED = "not_answered"
+
+
 class RfiAnswer(SQLModel, table=True):
     __tablename__ = "rfi_answers"
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     rfi_id: UUID = Field(foreign_key="rfi_cases.id")
     question_id: UUID = Field(foreign_key="rfi_questions.id")
     answer_text: str
+    answer_status: AnswerStatus = Field(default=AnswerStatus.ANSWERED)
+    evidence_quote: Optional[str] = None
+    follow_up_asked: bool = Field(default=False)
+    evaluator_notes: Optional[str] = None
     captured_by: AnswerCapturedBy
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class RfiCustomerQuestion(SQLModel, table=True):
+    __tablename__ = "rfi_customer_questions"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    rfi_id: UUID = Field(foreign_key="rfi_cases.id")
+    question_text: str
+    agent_response: Optional[str] = None
+    needs_human_followup: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TranscriptSpeaker(str, Enum):
+    AGENT = "agent"
+    CUSTOMER = "customer"
+    SYSTEM = "system"
+
+
+class RfiTranscriptTurn(SQLModel, table=True):
+    __tablename__ = "rfi_transcript_turns"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    rfi_id: UUID = Field(foreign_key="rfi_cases.id")
+    speaker: TranscriptSpeaker
+    text: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -124,6 +162,8 @@ class RfiCaseRead(SQLModel):
     room_name: Optional[str] = None
     magic_token: Optional[str] = None
     expires_at: Optional[datetime] = None
+    needs_review: bool = False
+    review_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -147,6 +187,10 @@ class RfiQuestionRead(SQLModel):
 class RfiAnswerInput(SQLModel):
     question_id: UUID
     answer_text: str
+    answer_status: Optional[AnswerStatus] = None
+    evidence_quote: Optional[str] = None
+    follow_up_asked: bool = False
+    evaluator_notes: Optional[str] = None
     captured_by: Optional[AnswerCapturedBy] = None
 
 
@@ -159,13 +203,55 @@ class RfiAnswerRead(SQLModel):
     rfi_id: UUID
     question_id: UUID
     answer_text: str
+    answer_status: AnswerStatus
+    evidence_quote: Optional[str] = None
+    follow_up_asked: bool
+    evaluator_notes: Optional[str] = None
     captured_by: AnswerCapturedBy
+    created_at: datetime
+
+
+class RfiCustomerQuestionInput(SQLModel):
+    question_text: str
+    agent_response: Optional[str] = None
+    needs_human_followup: bool = True
+
+
+class RfiCustomerQuestionsUpsert(SQLModel):
+    questions: List[RfiCustomerQuestionInput]
+
+
+class RfiCustomerQuestionRead(SQLModel):
+    id: UUID
+    rfi_id: UUID
+    question_text: str
+    agent_response: Optional[str] = None
+    needs_human_followup: bool
+    created_at: datetime
+
+
+class RfiTranscriptTurnInput(SQLModel):
+    speaker: TranscriptSpeaker
+    text: str
+
+
+class RfiTranscriptTurnsUpsert(SQLModel):
+    turns: List[RfiTranscriptTurnInput]
+
+
+class RfiTranscriptTurnRead(SQLModel):
+    id: UUID
+    rfi_id: UUID
+    speaker: TranscriptSpeaker
+    text: str
     created_at: datetime
 
 
 class RfiSummaryInput(SQLModel):
     summary_text: str
     structured_json: Dict[str, Any]
+    needs_review: bool = False
+    review_reason: Optional[str] = None
 
 
 class RfiSummaryRead(SQLModel):
@@ -183,10 +269,14 @@ class RfiDetail(SQLModel):
     room_name: Optional[str] = None
     magic_token: Optional[str] = None
     expires_at: Optional[datetime] = None
+    needs_review: bool = False
+    review_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     questions: List[RfiQuestionRead]
     answers: List[RfiAnswerRead]
+    customer_questions: List[RfiCustomerQuestionRead] = Field(default_factory=list)
+    transcript: List[RfiTranscriptTurnRead] = Field(default_factory=list)
     summary: Optional[RfiSummaryRead] = None
 
 
@@ -195,8 +285,11 @@ class CustomerRfiDetail(SQLModel):
     customer_email: str
     status: RfiStatus
     room_name: Optional[str] = None
+    needs_review: bool = False
+    review_reason: Optional[str] = None
     questions: List[RfiQuestionRead]
     answers: List[RfiAnswerRead]
+    customer_questions: List[RfiCustomerQuestionRead] = Field(default_factory=list)
     summary: Optional[RfiSummaryRead] = None
 
 
@@ -226,3 +319,12 @@ class StartCallRequest(SQLModel):
     persist_answers: bool = True
     generate_summary: bool = True
     end_call_on_complete: bool = True
+
+
+class RfiNeedsReviewInput(SQLModel):
+    reason: str
+
+
+class RfiCallCompleteInput(SQLModel):
+    needs_review: bool = False
+    review_reason: Optional[str] = None

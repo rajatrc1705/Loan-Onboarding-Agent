@@ -3,7 +3,7 @@ import contextlib
 import json
 import logging
 import os
-from typing import List
+from typing import Any, List
 
 import httpx
 from dotenv import load_dotenv
@@ -12,14 +12,46 @@ from livekit.agents import AgentServer, AgentSession, Agent, room_io, function_t
 from livekit.plugins import openai, noise_cancellation, bey
 from openai.types.beta.realtime.session import TurnDetection
 
+from api.llm_review import (
+    build_fallback_review_packet,
+    evaluate_answer,
+    review_packet_to_text,
+    summarize_call,
+)
+
 load_dotenv(".env.local")
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 BEYOND_PRESENCE_API_KEY = os.getenv("BEYOND_PRESENCE_API_KEY")
 BEY_AVATAR_ID = os.getenv("BEY_AVATAR_ID")
 ANSWER_TIMEOUT_SECONDS = int(os.getenv("ANSWER_TIMEOUT_SECONDS", "45"))
+CUSTOMER_QUESTION_TIMEOUT_SECONDS = int(
+    os.getenv("CUSTOMER_QUESTION_TIMEOUT_SECONDS", "30")
+)
 
 logger = logging.getLogger("rfi-agent-worker")
+
+
+def decide_answer_action(evaluation: dict[str, Any], follow_up_count: int) -> dict[str, Any]:
+    status = evaluation.get("answer_status") or "unclear"
+    follow_up_question = evaluation.get("follow_up_question") or ""
+    if status == "answered":
+        return {
+            "is_final": True,
+            "answer_status": "answered",
+            "follow_up_question": "",
+        }
+    if follow_up_count < 1 and follow_up_question:
+        return {
+            "is_final": False,
+            "answer_status": status,
+            "follow_up_question": follow_up_question,
+        }
+    return {
+        "is_final": True,
+        "answer_status": status,
+        "follow_up_question": "",
+    }
 
 
 async def fetch_rfi_detail(rfi_id: str) -> dict:
@@ -32,18 +64,77 @@ async def fetch_rfi_detail(rfi_id: str) -> dict:
 
 async def post_answers(rfi_id: str, answers: List[dict]) -> None:
     async with httpx.AsyncClient() as client:
-        await client.post(f"{API_URL}/rfi/{rfi_id}/answers", json={"answers": answers})
-
-
-async def post_summary(rfi_id: str, summary_text: str, structured_json: dict) -> None:
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            f"{API_URL}/rfi/{rfi_id}/summary",
-            json={"summary_text": summary_text, "structured_json": structured_json},
+        response = await client.post(
+            f"{API_URL}/rfi/{rfi_id}/answers", json={"answers": answers}
         )
+        response.raise_for_status()
 
 
-def create_assistant(questions: List[dict], record_answer_tool: callable) -> Agent:
+async def post_customer_questions(rfi_id: str, questions: List[dict]) -> None:
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{API_URL}/rfi/{rfi_id}/customer-questions",
+            json={"questions": questions},
+        )
+        response.raise_for_status()
+
+
+async def post_transcript_turns(rfi_id: str, turns: List[dict]) -> None:
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{API_URL}/rfi/{rfi_id}/transcript",
+            json={"turns": turns},
+        )
+        response.raise_for_status()
+
+
+async def post_summary(
+    rfi_id: str,
+    summary_text: str,
+    structured_json: dict,
+    *,
+    needs_review: bool,
+    review_reason: str | None = None,
+) -> None:
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{API_URL}/rfi/{rfi_id}/summary",
+            json={
+                "summary_text": summary_text,
+                "structured_json": structured_json,
+                "needs_review": needs_review,
+                "review_reason": review_reason,
+            },
+        )
+        response.raise_for_status()
+
+
+async def mark_needs_review(rfi_id: str, reason: str) -> None:
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{API_URL}/rfi/{rfi_id}/needs-review",
+            json={"reason": reason},
+        )
+        response.raise_for_status()
+
+
+async def complete_call(
+    rfi_id: str, *, needs_review: bool, review_reason: str | None = None
+) -> None:
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{API_URL}/rfi/{rfi_id}/complete-call",
+            json={"needs_review": needs_review, "review_reason": review_reason},
+        )
+        response.raise_for_status()
+
+
+def create_assistant(
+    questions: List[dict],
+    record_answer_tool: callable,
+    record_customer_question_tool: callable,
+    finish_customer_questions_tool: callable,
+) -> Agent:
     @function_tool
     async def get_questions() -> str:
         """Get the list of questions that the risk analyst wants to ask the customer."""
@@ -59,16 +150,28 @@ def create_assistant(questions: List[dict], record_answer_tool: callable) -> Age
             "You are an onboarding clarification agent. "
             "Lead with the exact greeting provided by the system prompt. Do not add any other words. "
             "Use the get_questions tool to retrieve the questions, and ONLY ask those questions. "
-            "Do not ask any additional questions beyond the tool-provided list. "
+            "Do not invent additional risk questions beyond the tool-provided list. "
             "Ask each question one by one, waiting for the customer's answer before moving on. "
             "Only call record_answer after the customer has spoken. Never fabricate answers. "
-            "After each answer, call record_answer with the captured response and confirm it briefly. "
+            "After each answer, call record_answer with the captured response and follow the tool result. "
+            "If the tool asks for a follow-up, ask only that follow-up and then call record_answer again. "
+            "Never ask more than one follow-up for the same internal question. "
+            "Customer questions are allowed, but only answer basic process questions. "
+            "For approval, underwriting, legal, pricing, policy, or case-specific decision questions, "
+            "say the internal team will follow up and call record_customer_question with needs_human_followup=true. "
+            "At the end of the internal questions, ask whether the customer has questions for the team. "
+            "If they ask a question, call record_customer_question. If they have no questions, call finish_customer_questions. "
             "If the customer is not able or willing to answer, politely ask them to come back when ready and end the call. "
             "IMPORTANT: If the user interrupts you while you are speaking, stop immediately and listen to what they have to say. "
             "Acknowledge their input naturally (e.g., 'Sure, go ahead' or 'Yes?') and respond to their question or comment before continuing. "
             "If they ask to skip a question, move to the next one. If they want to go back to a previous question, accommodate that request."
         ),
-        tools=[get_questions, record_answer_tool],
+        tools=[
+            get_questions,
+            record_answer_tool,
+            record_customer_question_tool,
+            finish_customer_questions_tool,
+        ],
     )
 
 
@@ -122,31 +225,166 @@ async def my_agent(ctx: agents.JobContext):
 
     detail = await fetch_rfi_detail(rfi_id)
     questions = detail.get("questions", []) if detail else []
-    recorded_answers: dict[str, str] = {}
+    question_by_id = {str(question.get("id")): question for question in questions}
+    recorded_answers: dict[str, dict[str, Any]] = {}
+    customer_questions: list[dict[str, Any]] = []
+    transcript_turns: list[dict[str, Any]] = []
     answer_events: dict[str, asyncio.Event] = {}
-    current_question_text: str | None = None
+    follow_up_counts: dict[str, int] = {}
+    evaluator_failed = asyncio.Event()
+    customer_question_done = asyncio.Event()
+
+    async def record_transcript_turn(speaker: str, text: str) -> None:
+        cleaned = text.strip()
+        if not cleaned:
+            return
+        turn = {"speaker": speaker, "text": cleaned}
+        transcript_turns.append(turn)
+        try:
+            await post_transcript_turns(rfi_id, [turn])
+        except Exception as exc:  # noqa: BLE001 - transcript should not break call
+            logger.warning("Failed to persist transcript turn: %s", exc)
+
+    async def persist_answer(
+        question_id: str,
+        answer_text: str,
+        evaluation: dict[str, Any],
+        *,
+        follow_up_asked: bool,
+    ) -> None:
+        answer_payload = {
+            "question_id": question_id,
+            "answer_text": answer_text,
+            "answer_status": evaluation.get("answer_status", "unclear"),
+            "evidence_quote": evaluation.get("evidence_quote") or "",
+            "follow_up_asked": follow_up_asked,
+            "evaluator_notes": evaluation.get("evaluator_notes") or "",
+            "captured_by": "agent",
+        }
+        recorded_answers[question_id] = answer_payload
+        if persist_answers:
+            await post_answers(rfi_id, [answer_payload])
 
     @function_tool
-    async def record_answer(question_id: str, answer_text: str) -> str:
+    async def record_answer(
+        question_id: str, answer_text: str, evidence_quote: str = ""
+    ) -> str:
+        """Record a customer answer and run the separate completeness evaluator."""
         cleaned = answer_text.strip()
         if not cleaned or len(cleaned.split()) < 3:
             return "No answer captured yet. Ask the customer to respond."
-        if current_question_text and cleaned.lower() == current_question_text.strip().lower():
+        question = question_by_id.get(str(question_id))
+        if not question:
+            return "Unknown question id. Ask the current question again."
+        question_text = str(question.get("question_text") or "")
+        if cleaned.lower() == question_text.strip().lower():
             return "No answer captured yet. Ask the customer to respond."
-        recorded_answers[question_id] = cleaned
-        answer_events.setdefault(question_id, asyncio.Event()).set()
-        if persist_answers:
-            await post_answers(
-                rfi_id,
-                [
-                    {
-                        "question_id": question_id,
-                        "answer_text": answer_text,
-                        "captured_by": "agent",
-                    }
-                ],
+
+        await record_transcript_turn("customer", cleaned)
+
+        follow_up_count = follow_up_counts.get(str(question_id), 0)
+        try:
+            evaluation = await evaluate_answer(question_text, cleaned)
+        except Exception as exc:  # noqa: BLE001 - evaluator failure is critical
+            reason = f"Answer evaluator failed during call: {exc}"
+            logger.warning(reason)
+            evaluator_failed.set()
+            evaluation = {
+                "answer_status": "unclear",
+                "evidence_quote": evidence_quote or cleaned,
+                "evaluator_notes": reason,
+                "follow_up_question": "",
+            }
+            await persist_answer(
+                str(question_id),
+                cleaned,
+                evaluation,
+                follow_up_asked=follow_up_count > 0,
             )
-        return "Answer recorded."
+            with contextlib.suppress(Exception):
+                await mark_needs_review(rfi_id, reason)
+            answer_events.setdefault(str(question_id), asyncio.Event()).set()
+            return (
+                "The evaluator failed. Apologize and tell the customer the team "
+                "will review the partial answers and follow up."
+            )
+
+        if evidence_quote and not evaluation.get("evidence_quote"):
+            evaluation["evidence_quote"] = evidence_quote
+
+        action = decide_answer_action(evaluation, follow_up_count)
+        if action["is_final"] and action["answer_status"] == "answered":
+            await persist_answer(
+                str(question_id),
+                cleaned,
+                evaluation,
+                follow_up_asked=follow_up_count > 0,
+            )
+            answer_events.setdefault(str(question_id), asyncio.Event()).set()
+            return "Answer recorded as complete. Briefly confirm and continue."
+
+        if not action["is_final"]:
+            follow_up_counts[str(question_id)] = follow_up_count + 1
+            await persist_answer(
+                str(question_id),
+                cleaned,
+                evaluation,
+                follow_up_asked=False,
+            )
+            follow_up_question = action["follow_up_question"]
+            await record_transcript_turn("agent", follow_up_question)
+            return (
+                "The answer is incomplete. Ask exactly this one follow-up question "
+                f"and no other follow-up: {follow_up_question}"
+            )
+
+        evaluation["answer_status"] = action["answer_status"] or "unclear"
+        await persist_answer(
+            str(question_id),
+            cleaned,
+            evaluation,
+            follow_up_asked=follow_up_count > 0,
+        )
+        answer_events.setdefault(str(question_id), asyncio.Event()).set()
+        return (
+            "No more follow-ups are allowed for this question. Mark it unclear, "
+            "briefly acknowledge, and continue."
+        )
+
+    @function_tool
+    async def record_customer_question(
+        question_text: str,
+        agent_response: str = "",
+        needs_human_followup: bool = True,
+    ) -> str:
+        """Record a question asked by the customer during the call."""
+        cleaned = question_text.strip()
+        if not cleaned:
+            return "No customer question captured yet."
+        row = {
+            "question_text": cleaned,
+            "agent_response": agent_response.strip() or None,
+            "needs_human_followup": needs_human_followup,
+        }
+        customer_questions.append(row)
+        await record_transcript_turn("customer", cleaned)
+        if agent_response.strip():
+            await record_transcript_turn("agent", agent_response.strip())
+        try:
+            await post_customer_questions(rfi_id, [row])
+        except Exception as exc:  # noqa: BLE001 - keep the call moving if possible
+            logger.warning("Failed to persist customer question: %s", exc)
+        return (
+            "Customer question recorded. If it needs human follow-up, tell the "
+            "customer the team will follow up, then ask whether they have any "
+            "other questions. If they have no more questions, call finish_customer_questions."
+        )
+
+    @function_tool
+    async def finish_customer_questions() -> str:
+        """Record that the customer has no questions for the team."""
+        customer_question_done.set()
+        return "No customer questions recorded. Thank the customer and finish the call."
 
     async def _close_on_room_disconnect() -> None:
         await room_closed.wait()
@@ -154,12 +392,16 @@ async def my_agent(ctx: agents.JobContext):
 
     reply_lock = asyncio.Lock()
 
-    async def _safe_generate_reply(instructions: str, step: str) -> bool:
+    async def _safe_generate_reply(
+        instructions: str, step: str, transcript_text: str | None = None
+    ) -> bool:
         if room_closed.is_set():
             return False
         async with reply_lock:
             try:
                 await session.generate_reply(instructions=instructions)
+                if transcript_text:
+                    await record_transcript_turn("agent", transcript_text)
                 return True
             except Exception as exc:  # noqa: BLE001 - handle realtime timeouts
                 logger.warning("generate_reply failed at %s: %s", step, exc)
@@ -168,8 +410,17 @@ async def my_agent(ctx: agents.JobContext):
     async def _wait_for_answer(question_id: str) -> bool:
         event = answer_events.setdefault(question_id, asyncio.Event())
         try:
-            await asyncio.wait_for(event.wait(), timeout=ANSWER_TIMEOUT_SECONDS)
-            return True
+            done, pending = await asyncio.wait(
+                [
+                    asyncio.create_task(event.wait()),
+                    asyncio.create_task(evaluator_failed.wait()),
+                ],
+                timeout=ANSWER_TIMEOUT_SECONDS,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+            return bool(done and event.is_set() and not evaluator_failed.is_set())
         except asyncio.TimeoutError:
             return False
 
@@ -186,7 +437,12 @@ async def my_agent(ctx: agents.JobContext):
 
         await session.start(
             room=ctx.room,
-            agent=create_assistant(questions, record_answer),
+            agent=create_assistant(
+                questions,
+                record_answer,
+                record_customer_question,
+                finish_customer_questions,
+            ),
             room_options=room_io.RoomOptions(
                 audio_input=room_io.AudioInputOptions(
                     noise_cancellation=lambda params: noise_cancellation.BVCTelephony()
@@ -206,6 +462,11 @@ async def my_agent(ctx: agents.JobContext):
                 "about your application. I'll ask them one at a time and confirm your answers as we go.\""
             ),
             step="greeting",
+            transcript_text=(
+                "Hello! I'm the onboarding agent. The Risk Team has a few questions "
+                "to clarify about your application. I'll ask them one at a time and "
+                "confirm your answers as we go."
+            ),
         )
         if not greeted:
             return
@@ -217,57 +478,135 @@ async def my_agent(ctx: agents.JobContext):
             question_text = question.get("question_text")
             if not question_id or not question_text:
                 continue
-            current_question_text = question_text
             ok = await _safe_generate_reply(
                 instructions=(
                     "Ask ONLY the following question, with no preface or filler, then wait for their response. "
                     "Once they answer, call the record_answer tool with question_id "
                     f"'{question_id}' and answer_text set to the customer's response. "
-                    "After calling the tool, briefly confirm what you heard. "
+                    "If the tool returns a follow-up question, ask only that follow-up. "
+                    "If the tool says the answer is complete or unclear after the allowed follow-up, briefly acknowledge and continue. "
                     f"Question: {question_text}"
                 ),
                 step=f"question:{question_id}",
+                transcript_text=question_text,
             )
             if not ok:
                 break
             answered = await _wait_for_answer(question_id)
+            if evaluator_failed.is_set():
+                if room_closed.is_set():
+                    return
+                await _safe_generate_reply(
+                    instructions=(
+                        "Say: \"I'm sorry, we need to pause here. The team will review "
+                        "what we captured and follow up with you.\""
+                    ),
+                    step=f"evaluator-failed:{question_id}",
+                    transcript_text=(
+                        "I'm sorry, we need to pause here. The team will review what "
+                        "we captured and follow up with you."
+                    ),
+                )
+                ctx.shutdown("evaluator failed")
+                return
             if not answered:
                 if room_closed.is_set():
                     return
+                reason = f"Customer did not answer question {question_id} before timeout."
+                with contextlib.suppress(Exception):
+                    await post_answers(
+                        rfi_id,
+                        [
+                            {
+                                "question_id": str(question_id),
+                                "answer_text": "",
+                                "answer_status": "not_answered",
+                                "follow_up_asked": False,
+                                "evaluator_notes": reason,
+                                "captured_by": "agent",
+                            }
+                        ],
+                    )
+                    await mark_needs_review(rfi_id, reason)
                 await _safe_generate_reply(
                     instructions=(
                         "No worries. Please come back when you're ready to answer the questions. "
                         "We can continue then."
                     ),
                     step=f"no-answer:{question_id}",
+                    transcript_text=(
+                        "No worries. Please come back when you're ready to answer the questions. "
+                        "We can continue then."
+                    ),
                 )
                 ctx.shutdown("no answer")
                 return
 
         if questions and not room_closed.is_set():
+            customer_question_done.clear()
+            asked_for_questions = await _safe_generate_reply(
+                instructions=(
+                    "Ask exactly: \"Do you have any questions for our team?\" "
+                    "If the customer asks a question, call record_customer_question. "
+                    "If they say no or they have nothing else, call finish_customer_questions."
+                ),
+                step="customer-questions",
+                transcript_text="Do you have any questions for our team?",
+            )
+            if asked_for_questions:
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(
+                        customer_question_done.wait(),
+                        timeout=CUSTOMER_QUESTION_TIMEOUT_SECONDS,
+                    )
+
             await _safe_generate_reply(
                 instructions=(
-                    "Thank you for your patience. Your answers will be forwarded to the Risk Team."
+                    "Thank the customer for their time and say their responses will be "
+                    "forwarded to the team for review."
                 ),
                 step="thank-you",
+                transcript_text=(
+                    "Thank you for your time. Your responses will be forwarded to the "
+                    "team for review."
+                ),
             )
 
         if generate_summary and not room_closed.is_set():
-            summary_lines = []
-            structured_answers: dict[str, str] = {}
-            for question in questions:
-                question_id = question.get("id")
-                question_text = question.get("question_text")
-                if not question_id or not question_text:
-                    continue
-                answer = recorded_answers.get(question_id, "")
-                if answer:
-                    summary_lines.append(f"- {question_text}: {answer}")
-                    structured_answers[question_id] = answer
-                else:
-                    summary_lines.append(f"- {question_text}: (no answer captured)")
-            summary_text = "Summary\n" + "\n".join(summary_lines)
-            await post_summary(rfi_id, summary_text, {"answers": structured_answers})
+            review_reason = None
+            needs_review = any(
+                answer.get("answer_status") != "answered"
+                for answer in recorded_answers.values()
+            ) or any(
+                question.get("needs_human_followup") for question in customer_questions
+            )
+            try:
+                packet = await summarize_call(
+                    questions=questions,
+                    answers=list(recorded_answers.values()),
+                    customer_questions=customer_questions,
+                    transcript=transcript_turns,
+                )
+            except Exception as exc:  # noqa: BLE001 - persist raw review data
+                logger.warning("Summary LLM failed: %s", exc)
+                packet = build_fallback_review_packet(
+                    questions, recorded_answers, customer_questions
+                )
+                packet.setdefault("summary_warnings", []).append(
+                    "Summary LLM failed; review raw captured answers."
+                )
+                needs_review = True
+                review_reason = f"Summary LLM failed: {exc}"
+            summary_text = review_packet_to_text(packet)
+            await post_summary(
+                rfi_id,
+                summary_text,
+                packet,
+                needs_review=needs_review,
+                review_reason=review_reason,
+            )
+        else:
+            await complete_call(rfi_id, needs_review=False)
 
         if end_call_on_complete:
             if ctx.room.isconnected():
@@ -287,4 +626,3 @@ async def my_agent(ctx: agents.JobContext):
 
 if __name__ == "__main__":
     agents.cli.run_app(server)
-    

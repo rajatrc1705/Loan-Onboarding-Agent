@@ -4,7 +4,7 @@ import { apiFetch } from "@/lib/api";
 import { RfiDetail } from "@/lib/types";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Room } from "livekit-client";
+import { Room, type RemoteTrack } from "livekit-client";
 
 export default function CallPage() {
   const params = useParams<{ id: string }>();
@@ -32,8 +32,8 @@ export default function CallPage() {
   }, [id]);
 
   useEffect(() => {
-    const handleTrackSubscribed = (track: any) => {
-      if (track?.attach && videoRef.current) {
+    const handleTrackSubscribed = (track: RemoteTrack) => {
+      if (videoRef.current) {
         track.attach(videoRef.current);
       }
     };

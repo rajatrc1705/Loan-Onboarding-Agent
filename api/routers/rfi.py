@@ -7,15 +7,23 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlmodel import Session, delete, select
 
 from ..db import get_session
+from .agent import dispatch_agent_join
 from ..models import (
+    AgentJoinRequest,
+    AnswerStatus,
     AnswerCapturedBy,
+    RfiCallCompleteInput,
     RfiAnswer,
     RfiAnswerRead,
     RfiAnswersUpsert,
     RfiCase,
     RfiCaseCreate,
     RfiCaseRead,
+    RfiCustomerQuestion,
+    RfiCustomerQuestionRead,
+    RfiCustomerQuestionsUpsert,
     RfiDetail,
+    RfiNeedsReviewInput,
     RfiQuestion,
     RfiQuestionRead,
     RfiQuestionsUpdate,
@@ -23,11 +31,16 @@ from ..models import (
     RfiSummary,
     RfiSummaryInput,
     RfiSummaryRead,
+    RfiTranscriptTurn,
+    RfiTranscriptTurnRead,
+    RfiTranscriptTurnsUpsert,
     StartCallRequest,
 )
 from ..settings import (
-    AGENT_SERVICE_URL,
     EMAIL_FROM,
+    LIVEKIT_API_KEY,
+    LIVEKIT_API_SECRET,
+    LIVEKIT_URL,
     MAGIC_LINK_BASE_URL,
     N8N_EMAIL_WEBHOOK_URL,
     RESEND_API_KEY,
@@ -127,6 +140,8 @@ def get_rfi_case(
     case = _get_case_or_404(session, rfi_id)
     questions = _list_questions(session, case.id)
     answers = _list_answers(session, case.id)
+    customer_questions = _list_customer_questions(session, case.id)
+    transcript = _list_transcript(session, case.id)
     summary = _get_summary(session, case.id)
     return RfiDetail(
         id=case.id,
@@ -136,16 +151,20 @@ def get_rfi_case(
         room_name=case.room_name,
         magic_token=case.magic_token,
         expires_at=case.expires_at,
+        needs_review=case.needs_review,
+        review_reason=case.review_reason,
         created_at=case.created_at,
         updated_at=case.updated_at,
         questions=questions,
         answers=answers,
+        customer_questions=customer_questions,
+        transcript=transcript,
         summary=summary,
     )
 
 
 @router.post("/{rfi_id}/start-call")
-def start_call(
+async def start_call(
     rfi_id: str,
     payload: StartCallRequest | None = Body(None),
     session: Session = Depends(get_session),
@@ -157,21 +176,19 @@ def start_call(
     session.commit()
     session.refresh(case)
 
-    if AGENT_SERVICE_URL and case.room_name:
+    if case.room_name and LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET:
         options = payload or StartCallRequest()
         try:
-            httpx.post(
-                f"{AGENT_SERVICE_URL.rstrip('/')}/agent/join",
-                json={
-                    "rfi_id": str(case.id),
-                    "room_name": case.room_name,
-                    "persist_answers": options.persist_answers,
-                    "generate_summary": options.generate_summary,
-                    "end_call_on_complete": options.end_call_on_complete,
-                },
-                timeout=5.0,
+            await dispatch_agent_join(
+                AgentJoinRequest(
+                    rfi_id=case.id,
+                    room_name=case.room_name,
+                    persist_answers=options.persist_answers,
+                    generate_summary=options.generate_summary,
+                    end_call_on_complete=options.end_call_on_complete,
+                )
             )
-        except httpx.HTTPError:
+        except Exception:
             pass
 
     return RfiCaseRead.model_validate(case)
@@ -190,6 +207,10 @@ def post_answers(
                 rfi_id=case.id,
                 question_id=answer.question_id,
                 answer_text=answer.answer_text,
+                answer_status=answer.answer_status or AnswerStatus.ANSWERED,
+                evidence_quote=answer.evidence_quote,
+                follow_up_asked=answer.follow_up_asked,
+                evaluator_notes=answer.evaluator_notes,
                 captured_by=answer.captured_by or AnswerCapturedBy.AGENT,
             )
         )
@@ -197,6 +218,83 @@ def post_answers(
     session.add(case)
     session.commit()
     return _list_answers(session, case.id)
+
+
+@router.post("/{rfi_id}/customer-questions")
+def post_customer_questions(
+    rfi_id: str,
+    payload: RfiCustomerQuestionsUpsert = Body(...),
+    session: Session = Depends(get_session),
+) -> List[RfiCustomerQuestionRead]:
+    case = _get_case_or_404(session, rfi_id)
+    for item in payload.questions:
+        session.add(
+            RfiCustomerQuestion(
+                rfi_id=case.id,
+                question_text=item.question_text,
+                agent_response=item.agent_response,
+                needs_human_followup=item.needs_human_followup,
+            )
+        )
+    case.updated_at = datetime.utcnow()
+    session.add(case)
+    session.commit()
+    return _list_customer_questions(session, case.id)
+
+
+@router.post("/{rfi_id}/transcript")
+def post_transcript_turns(
+    rfi_id: str,
+    payload: RfiTranscriptTurnsUpsert = Body(...),
+    session: Session = Depends(get_session),
+) -> List[RfiTranscriptTurnRead]:
+    case = _get_case_or_404(session, rfi_id)
+    for item in payload.turns:
+        session.add(
+            RfiTranscriptTurn(
+                rfi_id=case.id,
+                speaker=item.speaker,
+                text=item.text,
+            )
+        )
+    case.updated_at = datetime.utcnow()
+    session.add(case)
+    session.commit()
+    return _list_transcript(session, case.id)
+
+
+@router.post("/{rfi_id}/needs-review")
+def mark_needs_review(
+    rfi_id: str,
+    payload: RfiNeedsReviewInput = Body(...),
+    session: Session = Depends(get_session),
+) -> RfiCaseRead:
+    case = _get_case_or_404(session, rfi_id)
+    case.status = RfiStatus.NEEDS_REVIEW
+    case.needs_review = True
+    case.review_reason = payload.reason
+    case.updated_at = datetime.utcnow()
+    session.add(case)
+    session.commit()
+    session.refresh(case)
+    return RfiCaseRead.model_validate(case)
+
+
+@router.post("/{rfi_id}/complete-call")
+def complete_call(
+    rfi_id: str,
+    payload: RfiCallCompleteInput = Body(default=RfiCallCompleteInput()),
+    session: Session = Depends(get_session),
+) -> RfiCaseRead:
+    case = _get_case_or_404(session, rfi_id)
+    case.status = RfiStatus.DELIVERED
+    case.needs_review = payload.needs_review
+    case.review_reason = payload.review_reason
+    case.updated_at = datetime.utcnow()
+    session.add(case)
+    session.commit()
+    session.refresh(case)
+    return RfiCaseRead.model_validate(case)
 
 
 @router.post("/{rfi_id}/summary")
@@ -213,7 +311,9 @@ def post_summary(
         structured_json=payload.structured_json,
     )
     session.add(summary)
-    case.status = RfiStatus.SUMMARIZED
+    case.status = RfiStatus.DELIVERED
+    case.needs_review = payload.needs_review
+    case.review_reason = payload.review_reason
     case.updated_at = datetime.utcnow()
     session.add(case)
     session.commit()
@@ -230,8 +330,10 @@ def post_summary(
 def delete_rfi_case(rfi_id: str, session: Session = Depends(get_session)) -> dict:
     case = _get_case_or_404(session, rfi_id)
     session.exec(delete(RfiAnswer).where(RfiAnswer.rfi_id == case.id))
+    session.exec(delete(RfiCustomerQuestion).where(RfiCustomerQuestion.rfi_id == case.id))
     session.exec(delete(RfiQuestion).where(RfiQuestion.rfi_id == case.id))
     session.exec(delete(RfiSummary).where(RfiSummary.rfi_id == case.id))
+    session.exec(delete(RfiTranscriptTurn).where(RfiTranscriptTurn.rfi_id == case.id))
     session.delete(case)
     session.commit()
     return {"status": "deleted"}
@@ -306,6 +408,22 @@ def _list_answers(session: Session, rfi_id: UUID) -> List[RfiAnswerRead]:
     statement = statement.order_by(RfiAnswer.created_at.asc())
     answers = session.exec(statement).all()
     return [RfiAnswerRead.model_validate(item) for item in answers]
+
+
+def _list_customer_questions(
+    session: Session, rfi_id: UUID
+) -> List[RfiCustomerQuestionRead]:
+    statement = select(RfiCustomerQuestion).where(RfiCustomerQuestion.rfi_id == rfi_id)
+    statement = statement.order_by(RfiCustomerQuestion.created_at.asc())
+    questions = session.exec(statement).all()
+    return [RfiCustomerQuestionRead.model_validate(item) for item in questions]
+
+
+def _list_transcript(session: Session, rfi_id: UUID) -> List[RfiTranscriptTurnRead]:
+    statement = select(RfiTranscriptTurn).where(RfiTranscriptTurn.rfi_id == rfi_id)
+    statement = statement.order_by(RfiTranscriptTurn.created_at.asc())
+    turns = session.exec(statement).all()
+    return [RfiTranscriptTurnRead.model_validate(item) for item in turns]
 
 
 def _get_summary(session: Session, rfi_id: UUID) -> RfiSummaryRead | None:

@@ -7,45 +7,51 @@ import { FormEvent, useEffect, useState } from "react";
 export default function Home() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [applicationSearch, setApplicationSearch] = useState("");
+  const [submittedApplicationSearch, setSubmittedApplicationSearch] = useState("");
   const [applicationPage, setApplicationPage] = useState(1);
   const [applicationPageSize, setApplicationPageSize] = useState(20);
   const [applicationTotal, setApplicationTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  const loadApplications = async (options?: { page?: number; search?: string }) => {
-    try {
-      const nextPage = options?.page ?? applicationPage;
-      const search = options?.search ?? applicationSearch;
-      const offset = (nextPage - 1) * applicationPageSize;
-      const params = new URLSearchParams({
-        limit: applicationPageSize.toString(),
-        offset: offset.toString(),
-      });
-      if (search) {
-        params.set("search", search);
-      }
-      const response = await apiFetch<ApplicationList>(
-        `/applications?${params.toString()}`
-      );
-      setApplications(response.items);
-      setApplicationTotal(response.total);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load applications"
-      );
-    }
-  };
-
   useEffect(() => {
+    let cancelled = false;
+    const loadApplications = async () => {
+      try {
+        const offset = (applicationPage - 1) * applicationPageSize;
+        const params = new URLSearchParams({
+          limit: applicationPageSize.toString(),
+          offset: offset.toString(),
+        });
+        if (submittedApplicationSearch) {
+          params.set("search", submittedApplicationSearch);
+        }
+        const response = await apiFetch<ApplicationList>(
+          `/applications?${params.toString()}`
+        );
+        if (!cancelled) {
+          setApplications(response.items);
+          setApplicationTotal(response.total);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Failed to load applications"
+          );
+        }
+      }
+    };
     loadApplications();
-  }, [applicationPage, applicationPageSize]);
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationPage, applicationPageSize, submittedApplicationSearch]);
 
   const totalPages = Math.max(1, Math.ceil(applicationTotal / applicationPageSize));
 
   const handleApplicationSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setApplicationPage(1);
-    loadApplications({ page: 1, search: applicationSearch.trim() });
+    setSubmittedApplicationSearch(applicationSearch.trim());
   };
 
   return (

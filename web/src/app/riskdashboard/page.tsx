@@ -1,6 +1,6 @@
 "use client";
 
-import { apiBaseUrl, apiFetch } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { Application, ApplicationList, RfiCaseSummary } from "@/lib/types";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -41,6 +41,7 @@ export default function RiskDashboardPage() {
       IN_CALL: "bg-purple-100 text-purple-700",
       SUMMARIZED: "bg-emerald-100 text-emerald-700",
       DELIVERED: "bg-green-100 text-green-700",
+      NEEDS_REVIEW: "bg-red-100 text-red-700",
       CLOSED: "bg-zinc-200 text-zinc-700",
     };
     return (

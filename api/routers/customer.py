@@ -13,6 +13,8 @@ from ..models import (
     RfiAnswerRead,
     RfiAnswersUpsert,
     RfiCase,
+    RfiCustomerQuestion,
+    RfiCustomerQuestionRead,
     RfiQuestion,
     RfiQuestionRead,
     RfiSummary,
@@ -37,14 +39,18 @@ def get_magic_link(
         session.commit()
     questions = _list_questions(session, case.id)
     answers = _list_answers(session, case.id)
+    customer_questions = _list_customer_questions(session, case.id)
     summary = _get_summary(session, case.id)
     return CustomerRfiDetail(
         id=case.id,
         customer_email=case.customer_email,
         status=case.status,
         room_name=case.room_name,
+        needs_review=case.needs_review,
+        review_reason=case.review_reason,
         questions=questions,
         answers=answers,
+        customer_questions=customer_questions,
         summary=summary,
     )
 
@@ -103,6 +109,15 @@ def _list_answers(session: Session, rfi_id: UUID) -> List[RfiAnswerRead]:
     statement = statement.order_by(RfiAnswer.created_at.asc())
     answers = session.exec(statement).all()
     return [RfiAnswerRead.model_validate(item) for item in answers]
+
+
+def _list_customer_questions(
+    session: Session, rfi_id: UUID
+) -> List[RfiCustomerQuestionRead]:
+    statement = select(RfiCustomerQuestion).where(RfiCustomerQuestion.rfi_id == rfi_id)
+    statement = statement.order_by(RfiCustomerQuestion.created_at.asc())
+    questions = session.exec(statement).all()
+    return [RfiCustomerQuestionRead.model_validate(item) for item in questions]
 
 
 def _get_summary(session: Session, rfi_id: UUID) -> RfiSummaryRead | None:

@@ -5,6 +5,7 @@ export type RfiStatus =
   | "IN_CALL"
   | "SUMMARIZED"
   | "DELIVERED"
+  | "NEEDS_REVIEW"
   | "CLOSED";
 
 export type RfiCaseSummary = {
@@ -15,6 +16,8 @@ export type RfiCaseSummary = {
   room_name?: string | null;
   magic_token?: string | null;
   expires_at?: string | null;
+  needs_review?: boolean;
+  review_reason?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -45,7 +48,28 @@ export type RfiAnswer = {
   rfi_id: string;
   question_id: string;
   answer_text: string;
+  answer_status: "answered" | "unclear" | "not_answered";
+  evidence_quote?: string | null;
+  follow_up_asked: boolean;
+  evaluator_notes?: string | null;
   captured_by: "agent" | "customer_text";
+  created_at: string;
+};
+
+export type RfiCustomerQuestion = {
+  id: string;
+  rfi_id: string;
+  question_text: string;
+  agent_response?: string | null;
+  needs_human_followup: boolean;
+  created_at: string;
+};
+
+export type RfiTranscriptTurn = {
+  id: string;
+  rfi_id: string;
+  speaker: "agent" | "customer" | "system";
+  text: string;
   created_at: string;
 };
 
@@ -59,6 +83,8 @@ export type RfiSummary = {
 export type RfiDetail = RfiCaseSummary & {
   questions: RfiQuestion[];
   answers: RfiAnswer[];
+  customer_questions: RfiCustomerQuestion[];
+  transcript: RfiTranscriptTurn[];
   summary?: RfiSummary | null;
 };
 
@@ -67,7 +93,10 @@ export type CustomerRfiDetail = {
   customer_email: string;
   status: RfiStatus;
   room_name?: string | null;
+  needs_review?: boolean;
+  review_reason?: string | null;
   questions: RfiQuestion[];
   answers: RfiAnswer[];
+  customer_questions: RfiCustomerQuestion[];
   summary?: RfiSummary | null;
 };
